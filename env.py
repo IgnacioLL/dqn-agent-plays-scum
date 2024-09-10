@@ -212,7 +212,6 @@ class ScumEnv:
         print(f"Players playing are: {players_playing}")
 
     def _handle_unable_to_play(self) -> None:
-        print(f"Player number {self.player_turn} is unable to play")
         self.players_in_round[self.player_turn] = False
         self.n_players_in_round -= 1
         self._update_player_turn()
