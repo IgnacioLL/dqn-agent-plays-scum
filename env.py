@@ -3,6 +3,7 @@ import random
 from typing import List, Tuple
 
 import torch
+import torch.nn.functional as F
 import numpy as np
 
 from constants import Constants as C
@@ -82,8 +83,8 @@ class ScumEnv:
         self.cards[self.player_turn] = self._get_combinations(self.cards[self.player_turn][0])
 
     def _reinitialize_round(self) -> None:
-        print("End of round\n" + "_" * 40 + "\n")
-        self._print_players_in_game()
+        # print("End of round\n" + "_" * 40 + "\n")
+        # self._print_players_in_game()
         self.last_player = -1
         self.last_move = None
         self.players_in_round = self.players_in_game.copy()
@@ -94,19 +95,31 @@ class ScumEnv:
             self.player_turn = self.last_player
             self._reinitialize_round()
 
-    def _check_player_finish(self) -> bool:
+    def _check_player_finish(self) -> Tuple[bool, int]:
         if not self.cards[self.player_turn][0]:
             print(f" -> Player {self.player_turn} finished!!")
             self.players_in_game[self.player_turn] = False
             self.player_order[self.player_position_ending] = self.player_turn
+            if self.player_position_ending == 0:
+                finishing_reward = C.REWARD_WIN
+            elif self.player_position_ending == 1:
+                finishing_reward = C.REWARD_SECOND
+            elif self.player_position_ending == self.number_players - 2:
+                finishing_reward = C.REWARD_FOURTH
+            elif self.player_position_ending == self.number_players - 1:
+                finishing_reward = C.REWARD_LOSE
+            else:
+                finishing_reward = C.REWARD_THIRD
+            
             self.player_position_ending += 1
             self.last_move = None
             self._reinitialize_round()
-            return True
-        return False
+            return True, finishing_reward
+        return False, 0
 
     def convert_to_binary_player_turn_cards(self) -> np.array:
         return convert_to_binary(self.cards[self.player_turn])
+
 
     def _get_cards_to_play(self) -> np.array:
         if self.last_move is None:
@@ -116,7 +129,7 @@ class ScumEnv:
 
     def _get_cards_to_play_init(self) -> np.array:
         available_combinations = [i for i in range(C.NUMBER_OF_SUITS) if self.cards[self.player_turn][i]]
-        return convert_to_binary(self.cards[self.player_turn])
+        return np.append(convert_to_binary(self.cards[self.player_turn]), 0) ## add the pass action which is not available in the first move
 
     def _get_cards_to_play_followup(self) -> np.array:
         n_cards = self.last_move[1]
@@ -137,7 +150,7 @@ class ScumEnv:
             print("_" * 24 + "\nEnd of game\n" + "_" * 24)
             return
 
-        self._print_game_state()
+        # self._print_game_state()
 
         if self.last_player == self.player_turn:
             self._reinitialize_round()
@@ -153,9 +166,14 @@ class ScumEnv:
         if random.random() < epsilon:
             return random.choice(indices) + 1
         else:
-            return model.predict(action_state, target_model=True) ## esto devolvera un valor entre 1 y 57 que sera la eleccion del modelo
+            print("MODEL MOVE")
+            prediction = model.predict(action_state, target=True)
+            masked_probabilities = prediction[0] * torch.from_numpy(action_state).float().to(C.DEVICE)
+            
+            normalized_probabilities  = F.normalize(masked_probabilities, p=1, dim=0).numpy()
+            return np.argsort(normalized_probabilities)[-1] + 1  ## esto devolvera un valor entre 1 y 57 que sera la eleccion del modelo
 
-    def make_move(self, action: int) -> None:
+    def make_move(self, action: int) -> Tuple[np.array, int, bool]:
         n_cards = action // (C.NUMBER_OF_CARDS_PER_SUIT+1)
         card_number = action % (C.NUMBER_OF_CARDS_PER_SUIT+1)
 
@@ -164,16 +182,19 @@ class ScumEnv:
 
         if n_cards == 4:
             self._handle_unable_to_play()
-            print(f"The action is: {action} therefore the move is {C.N_CARDS_TO_TEXT[n_cards]}")
-            return
+            # print(f"The action is: {action} therefore the move is {C.N_CARDS_TO_TEXT[n_cards]}")
+            return np.append(self.convert_to_binary_player_turn_cards(),1), C.REWARD_PASS, False
 
-        print(f"The action is: {action} therefore the move is {C.N_CARDS_TO_TEXT[n_cards]} {str(card_number)}")
+        # print(f"The action is: {action} therefore the move is {C.N_CARDS_TO_TEXT[n_cards]} {str(card_number)}")
 
         skip = self.last_move is not None and self.last_move[0] == card_number
 
         self._update_player_cards(card_number, n_cards)
         self.last_move = [card_number, n_cards]
-        finish = self._check_player_finish()
+
+        finish, finishing_reward = self._check_player_finish()
+        new_observation = np.append(self.convert_to_binary_player_turn_cards(), 1)
+        cards_reward = C.REWARD_CARD * (n_cards+1)
 
         if finish:
             skip = False
@@ -181,12 +202,14 @@ class ScumEnv:
         self.last_player = self.player_turn
         self._update_player_turn(skip=skip)
 
+        return new_observation, cards_reward + finishing_reward, finish
+
     def automate_move(self) -> None:
         encoded_cards_to_play = self.get_cards_to_play()
-        if encoded_cards_to_play is None:
+        if encoded_cards_to_play is None: ## end of round
             return
         value = self.decide_move(encoded_cards_to_play)
-        self.make_move(value)
+        new_observation, reward, finish = self.make_move(value)
 
     def _print_game_state(self) -> None:
         if self.last_move is not None:
@@ -205,6 +228,11 @@ class ScumEnv:
         self.n_players_in_round -= 1
         self._update_player_turn()
         self._check_players_playing()
+    @staticmethod
+    def _print_rl_variables(reward: int, new_observation: np.array, finish: bool) -> None:
+        print(f"The reward is: {reward}")
+        print(f"The new observation is: {new_observation}")
+        print(f"The finish is: {finish}")
 
 if __name__ == '__main__':
     env = ScumEnv(5)
