@@ -228,11 +228,6 @@ class ScumEnv:
         self.n_players_in_round -= 1
         self._update_player_turn()
         self._check_players_playing()
-    @staticmethod
-    def _print_rl_variables(reward: int, new_observation: np.array, finish: bool) -> None:
-        print(f"The reward is: {reward}")
-        print(f"The new observation is: {new_observation}")
-        print(f"The finish is: {finish}")
 
 if __name__ == '__main__':
     env = ScumEnv(5)
