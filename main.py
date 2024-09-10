@@ -30,7 +30,6 @@ def main():
                         break
                     action = env.decide_move(current_state, epsilon=agent.epsilon, model=agent)
                     new_state, reward, finish = env.make_move(action)
-                    print_rl_variables(reward, new_state, finish, epsilon=agent.epsilon)
                     finish_agents[i] = finish
                     # Update episode reward for the current agent
                     episode_rewards[i] += reward
