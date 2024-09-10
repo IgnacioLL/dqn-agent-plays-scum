@@ -2,9 +2,11 @@ import collections
 import random
 from typing import List, Tuple
 
+import torch
 import numpy as np
 
 from constants import Constants as C
+from utils import convert_to_binary
 
 class ScumEnv:
     def __init__(self, number_players: int):
@@ -103,30 +105,34 @@ class ScumEnv:
             return True
         return False
 
-    def _get_cards_to_play(self) -> Tuple[List[int], int]:
+    def convert_to_binary_player_turn_cards(self) -> np.array:
+        return convert_to_binary(self.cards[self.player_turn])
+
+    def _get_cards_to_play(self) -> np.array:
         if self.last_move is None:
             return self._get_cards_to_play_init()
         else:
             return self._get_cards_to_play_followup()
 
-    def _get_cards_to_play_init(self) -> Tuple[List[int], int]:
+    def _get_cards_to_play_init(self) -> np.array:
         available_combinations = [i for i in range(C.NUMBER_OF_SUITS) if self.cards[self.player_turn][i]]
-        n_cards = random.choice(available_combinations)
-        return self.cards[self.player_turn][n_cards], n_cards
+        return convert_to_binary(self.cards[self.player_turn])
 
-    def _get_cards_to_play_followup(self) -> Tuple[List[int], int]:
+    def _get_cards_to_play_followup(self) -> np.array:
         n_cards = self.last_move[1]
         two_of_hearts = [C.NUMBER_OF_CARDS_PER_SUIT + 1] if C.NUMBER_OF_CARDS_PER_SUIT + 1 in self.cards[self.player_turn][0] else []
         possibilities = self.cards[self.player_turn][n_cards]
 
         if self.last_move[0] == 5:
-            return [cards for cards in possibilities if cards in [5, 6]], n_cards
+            cards =  [cards for cards in possibilities if cards in [5, 6]]
         elif self.last_move[0] == 8:
-            return [cards for cards in possibilities if cards <= self.last_move[0]], n_cards
+            cards = [cards for cards in possibilities if cards <= self.last_move[0]]
         else:
-            return [cards for cards in possibilities if cards >= self.last_move[0]] + two_of_hearts, n_cards
-
-    def make_move(self) -> None:
+            cards = [cards for cards in possibilities if cards >= self.last_move[0]] + two_of_hearts
+        cards = [cards if index == n_cards else [] for index in range(4)]
+        return np.append(convert_to_binary(cards), 1) ## add the pass action
+        
+    def get_cards_to_play(self) -> List[list]:
         if sum(self.players_in_game) == 0:
             print("_" * 24 + "\nEnd of game\n" + "_" * 24)
             return
@@ -137,14 +143,31 @@ class ScumEnv:
             self._reinitialize_round()
             return
 
-        cards_to_play_with, n_cards = self._get_cards_to_play()
+        action_state = self._get_cards_to_play()
+        
+        return action_state
 
-        if not cards_to_play_with:
+    def decide_move(self, action_state: List[int], epsilon: float=1, model: torch.nn.Module=None) -> int:
+        indices = [i for i, x in enumerate(action_state) if x == 1]
+
+        if random.random() < epsilon:
+            return random.choice(indices) + 1
+        else:
+            return model.predict(action_state, target_model=True) ## esto devolvera un valor entre 1 y 57 que sera la eleccion del modelo
+
+    def make_move(self, action: int) -> None:
+        n_cards = action // (C.NUMBER_OF_CARDS_PER_SUIT+1)
+        card_number = action % (C.NUMBER_OF_CARDS_PER_SUIT+1)
+
+        if card_number == 0:
+            card_number = C.NUMBER_OF_CARDS_PER_SUIT + 1
+
+        if n_cards == 4:
             self._handle_unable_to_play()
+            print(f"The action is: {action} therefore the move is {C.N_CARDS_TO_TEXT[n_cards]}")
             return
 
-        card_number = random.choice(cards_to_play_with)
-        print(f"The player moved {C.N_CARDS_TO_TEXT[n_cards+1]} {str(card_number)}")
+        print(f"The action is: {action} therefore the move is {C.N_CARDS_TO_TEXT[n_cards]} {str(card_number)}")
 
         skip = self.last_move is not None and self.last_move[0] == card_number
 
@@ -157,6 +180,13 @@ class ScumEnv:
 
         self.last_player = self.player_turn
         self._update_player_turn(skip=skip)
+
+    def automate_move(self) -> None:
+        encoded_cards_to_play = self.get_cards_to_play()
+        if encoded_cards_to_play is None:
+            return
+        value = self.decide_move(encoded_cards_to_play)
+        self.make_move(value)
 
     def _print_game_state(self) -> None:
         if self.last_move is not None:
@@ -177,6 +207,7 @@ class ScumEnv:
         self._check_players_playing()
 
 if __name__ == '__main__':
-    env = ScrumEnv(5)
+    env = ScumEnv(5)
     for _ in range(100):
-        env.make_move()
+        env.automate_move()
+
