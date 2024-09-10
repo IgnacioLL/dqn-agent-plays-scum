@@ -16,6 +16,12 @@ def convert_to_binary(data: list[list[int]]) -> np.array:
                 result[j][i-1] = 1
     return np.array(result).flatten()
 
+def print_rl_variables(reward: int, new_observation: np.array, finish: bool, epsilon: float) -> None:
+        print(f"The reward is: {reward}")
+        print(f"The new observation is: {new_observation}")
+        print(f"The finish is: {finish}")
+        print(f"The epsilon is: {epsilon}")
+        
 if __name__ == "__main__":
     test = [[1,2,3,4,5,6,7,8,9, 9, 9,11,11], [9,11], [9], []]
     binary_result = convert_to_binary(test)
