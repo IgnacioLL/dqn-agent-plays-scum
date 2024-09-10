@@ -3,4 +3,16 @@ class Constants:
     NUMBER_OF_CARDS_PER_SUIT = 13
     NUMBER_OF_CARDS = NUMBER_OF_SUITS * NUMBER_OF_CARDS_PER_SUIT
 
-    N_CARDS_TO_TEXT = {0:'a', 1: 'a pair of', 2: 'a triplet of', 3: 'a quad of'}
+    N_CARDS_TO_TEXT = {0:'a', 1: 'a pair of', 2: 'a triplet of', 3: 'a quad of', 4: 'PASS!'}
+
+    NUMBER_OF_POSSIBLE_STATES = NUMBER_OF_CARDS
+
+    REPLAY_MEMORY_SIZE = 50_000 ## 
+    MIN_REPLAY_MEMORY_SIZE = 1_000
+    MODEL_NAME = "256x2"
+
+    BATCH_SIZE = 256
+    DISCOUNT = .99
+    UPDATE_TARGET_EVERY = 1000
+
+    EPISODES = 1000
