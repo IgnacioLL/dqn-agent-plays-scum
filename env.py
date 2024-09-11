@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import numpy as np
 
 from constants import Constants as C
-from utils import convert_to_binary
+from utils import convert_to_binary_tensor
 
 class ScumEnv:
     def __init__(self, number_players: int):
@@ -113,9 +113,8 @@ class ScumEnv:
             return True, finishing_reward
         return False, 0
 
-    def convert_to_binary_player_turn_cards(self) -> np.array:
-        return convert_to_binary(self.cards[self.player_turn])
-
+    def convert_to_binary_player_turn_cards(self) -> torch.tensor:
+        return convert_to_binary_tensor(self.cards[self.player_turn], pass_option=True)
 
     def _get_cards_to_play(self) -> np.array:
         if self.last_move is None:
@@ -123,11 +122,11 @@ class ScumEnv:
         else:
             return self._get_cards_to_play_followup()
 
-    def _get_cards_to_play_init(self) -> np.array:
+    def _get_cards_to_play_init(self) -> torch.tensor:
         available_combinations = [i for i in range(C.NUMBER_OF_SUITS) if self.cards[self.player_turn][i]]
-        return np.append(convert_to_binary(self.cards[self.player_turn]), 0) ## add the pass action which is not available in the first move
+        return convert_to_binary_tensor(self.cards[self.player_turn], pass_option=False) ## the pass action which is not available in the first move
 
-    def _get_cards_to_play_followup(self) -> np.array:
+    def _get_cards_to_play_followup(self) -> torch.tensor:
         n_cards = self.last_move[1]
         two_of_hearts = [C.NUMBER_OF_CARDS_PER_SUIT + 1] if C.NUMBER_OF_CARDS_PER_SUIT + 1 in self.cards[self.player_turn][0] else []
         possibilities = self.cards[self.player_turn][n_cards]
@@ -139,9 +138,9 @@ class ScumEnv:
         else:
             cards = [cards for cards in possibilities if cards >= self.last_move[0]] + two_of_hearts
         cards = [cards if index == n_cards else [] for index in range(4)]
-        return np.append(convert_to_binary(cards), 1) ## add the pass action
+        return convert_to_binary_tensor(cards, pass_option=True) ## add the pass action
         
-    def get_cards_to_play(self) -> List[list]:
+    def get_cards_to_play(self) -> torch.tensor:
         if sum(self.players_in_game) == 0:
             return
 
@@ -149,23 +148,24 @@ class ScumEnv:
             self._reinitialize_round()
             return
 
-        action_state = self._get_cards_to_play()
+        action_state: torch.tensor = self._get_cards_to_play()
         
         return action_state
 
-    def decide_move(self, action_state: List[int], epsilon: float=1, model: torch.nn.Module=None) -> int:
-        indices = [i for i, x in enumerate(action_state) if x == 1]
+    def decide_move(self, action_state: torch.tensor, epsilon: float=1, model: torch.nn.Module=None) -> int:
 
         if random.random() < epsilon:
+            action_state_list = action_state.cpu().detach().numpy()
+            indices = [i for i, x in enumerate(action_state_list) if x == 1]
             return random.choice(indices) + 1
         else:
             prediction = model.predict(action_state, target=True)
-            masked_probabilities = prediction[0] * torch.from_numpy(action_state).float().to(C.DEVICE)
+            masked_probabilities = prediction[0] * action_state
             
             normalized_probabilities  = F.normalize(masked_probabilities, p=1, dim=0).cpu().detach().numpy()
             return np.argsort(normalized_probabilities)[-1] + 1  ## esto devolvera un valor entre 1 y 57 que sera la eleccion del modelo
 
-    def make_move(self, action: int) -> Tuple[np.array, int, bool]:
+    def make_move(self, action: int) -> Tuple[torch.tensor, int, bool]:
         n_cards = action // (C.NUMBER_OF_CARDS_PER_SUIT+1)
         card_number = action % (C.NUMBER_OF_CARDS_PER_SUIT+1)
 
@@ -174,7 +174,7 @@ class ScumEnv:
 
         if n_cards == 4:
             self._handle_unable_to_play()
-            return np.append(self.convert_to_binary_player_turn_cards(),1), C.REWARD_PASS, False
+            return self.convert_to_binary_player_turn_cards(), C.REWARD_PASS, False
 
         skip = self.last_move is not None and self.last_move[0] == card_number
 
@@ -182,7 +182,7 @@ class ScumEnv:
         self.last_move = [card_number, n_cards]
 
         finish, finishing_reward = self._check_player_finish()
-        new_observation = np.append(self.convert_to_binary_player_turn_cards(), 1)
+        new_observation = self.convert_to_binary_player_turn_cards()
         cards_reward = C.REWARD_CARD * (n_cards+1)
 
         if finish:
