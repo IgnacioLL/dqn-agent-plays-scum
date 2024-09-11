@@ -3,7 +3,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from torch import optim
-
+import torch.cuda.amp as amp
 
 import numpy as np
 from constants import Constants as C
@@ -21,9 +21,9 @@ class ScumModel(nn.Module):
             nn.ReLU(),
             nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Linear(512, C.NUMBER_OF_POSSIBLE_STATES), ## +1 will be the pass statement
+            nn.Linear(512, C.NUMBER_OF_POSSIBLE_STATES), 
         )
-        self.softmax = nn.Softmax(dim=-1)  # Change dim=1 to dim=-1
+        self.softmax = nn.Softmax(dim=-1)  # Change dim=1 to dim=-1, this will take the last dimension of the tensor
 
     def forward(self, x):
         x = self.softmax_nn(x)
@@ -43,6 +43,10 @@ class DQNAgent:
         self.epsilon_decay = C.EPSILON_DECAY
 
         self.target_update_counter = 0
+        
+        self.scaler = amp.GradScaler()
+        self.criterion = nn.MSELoss()
+        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
 
     def create_model(self) -> ScumModel:
         model = ScumModel().to(C.DEVICE)
@@ -55,7 +59,6 @@ class DQNAgent:
     def predict(self, state: np.ndarray, target: bool = False) -> np.ndarray:
         if state.ndim == 1:
             state = state[np.newaxis, :]
-        state = torch.from_numpy(state).float().to(C.DEVICE)
         model = self.target_model if target else self.model
         prediction = model(state)
         return prediction
@@ -63,26 +66,24 @@ class DQNAgent:
 
        # Trains main network every step during episode
     def train(self, terminal_state):
-
-        self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
         self.model.train()
+
+        ## Initialize the running loss to 0 this will be used to store the loss of the training
+        running_loss = 0.0
 
         # Start training only if certain number of samples is already saved
         if len(self.replay_memory) < C.MIN_REPLAY_MEMORY_SIZE:
             return
-        
-        minibatch = random.sample(self.replay_memory, C.BATCH_SIZE) ## sample from
+            
+        ## Sample a minibatch from the replay memory
+        minibatch = random.sample(self.replay_memory, C.BATCH_SIZE)
 
-        ## Probably TODO
-        current_states = np.array([transition[0] for transition in minibatch]) 
-
-        # Get current states from minibatch, then query NN model for Q values
+        ## Predict the Q's value for the current states
+        current_states = torch.stack([transition[0] for transition in minibatch]).to(C.DEVICE) 
         current_qs_list = self.predict(current_states, target=False)
 
-        # Get future states from minibatch, then query NN model for Q values
-        # When using target network, query it, otherwise main network should be queried
-        new_current_states = np.array([transition[3] for transition in minibatch])
+        ## Predict the Q's value for the new current states with the target model, which is the one that is updated every C.UPDATE_TARGET_EVERY episodes
+        new_current_states = torch.stack([transition[3] for transition in minibatch]).to(C.DEVICE)
         future_qs_list = self.predict(new_current_states, target=True)
 
         X = []
@@ -94,33 +95,38 @@ class DQNAgent:
             # If not a terminal state, get new q from future states, otherwise set it to 0
             # almost like with Q Learning, but we use just part of equation here
             if not finish:
-
-                max_future_q = np.max(future_qs_list[index].cpu().detach().numpy())
+                # that .item() does is to get the value of the tensor as a python number    
+                max_future_q = torch.max(future_qs_list[index]).item() 
                 new_q = reward + C.DISCOUNT * max_future_q
             else:
                 new_q = reward
 
             # Update Q value for given state
-            current_qs = current_qs_list[index]
+            ## We clone the tensor to avoid in place operations
+            current_qs = current_qs_list[index].clone()
             current_qs[action-1] = new_q
 
             # And append to our training data
-            X.append(torch.from_numpy(current_state).float().to(C.DEVICE))
+            X.append(current_state)
             y.append(current_qs)
         
+        ## Convert the lists to tensors
+        batch_X = torch.stack(X).to(C.DEVICE)
+        batch_y = torch.stack(y).to(C.DEVICE)
 
-        running_loss = 0.0
-        for batch_X, batch_y in zip(X, y):
-            # Zero the parameter gradients
-            self.optimizer.zero_grad()
+        with amp.autocast():
+            outputs = self.model(batch_X)
+            loss = self.criterion(outputs, batch_y)
             
-            # Forward pass
-            outputs = self.model(batch_X.unsqueeze(0))  # Add unsqueeze(0)
-            loss = self.criterion(outputs, batch_y.unsqueeze(0))  # Add unsqueeze(0)
             
             # Backward pass and optimize
-            loss.backward()
-            self.optimizer.step()
+            ## this is for the mixed precision training,
+            # it is used to scale the loss and the gradients 
+            # so that the training is more stable
+            self.scaler.scale(loss).backward() 
+            self.scaler.step(self.optimizer)
+            # Update the scale for next iteration
+            self.scaler.update()
             
             running_loss += loss.item()
         
@@ -131,7 +137,7 @@ class DQNAgent:
 
         # If counter reaches set value, update target network with weights of main network
         if self.target_update_counter > C.UPDATE_TARGET_EVERY:
-            self.target_model.set_weights(self.model.get_weights())
+            self.target_model.load_state_dict(self.model.state_dict())
             self.target_update_counter = 0
 
     def decay_epsilon(self):
