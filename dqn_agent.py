@@ -16,23 +16,21 @@ class ScumModel(nn.Module):
     def __init__(self):
         ## Create a neural network with 2 layers of 512 neurons each 
         super().__init__()
-        self.softmax_nn = nn.Sequential(
+        self.linear_nn = nn.Sequential(
             nn.Linear(C.NUMBER_OF_POSSIBLE_STATES, 512),
             nn.ReLU(),
             nn.Linear(512, 512),
             nn.ReLU(),
             nn.Linear(512, C.NUMBER_OF_POSSIBLE_STATES), 
         )
-        self.softmax = nn.Softmax(dim=-1)  # Change dim=1 to dim=-1, this will take the last dimension of the tensor
 
     def forward(self, x):
-        x = self.softmax_nn(x)
-        proba = self.softmax(x)
-        return proba
+        qs_prediction = self.linear_nn(x)
+        return qs_prediction
 
 
 class DQNAgent:
-    def __init__(self, epsilon: float = 1.0) -> None:
+    def __init__(self, epsilon: float = 1.0, learning_rate: float = 0.001) -> None:
         self.model = self.create_model()
         self.target_model = self.create_model()
         self.target_model.load_state_dict(self.model.state_dict())
@@ -46,7 +44,8 @@ class DQNAgent:
         
         self.scaler = amp.GradScaler()
         self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
+        self.learning_rate = learning_rate
+        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
 
     def create_model(self) -> ScumModel:
         model = ScumModel().to(C.DEVICE)
@@ -117,6 +116,11 @@ class DQNAgent:
         with amp.autocast():
             outputs = self.model(batch_X)
             loss = self.criterion(outputs, batch_y)
+
+            if random.random() < 0.1:
+                print("Outputs: ", outputs)
+                print("Loss: ", loss)
+
             
             
             # Backward pass and optimize
