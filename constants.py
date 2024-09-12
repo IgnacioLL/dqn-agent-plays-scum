@@ -15,9 +15,9 @@ class Constants:
 
     BATCH_SIZE = 256
     DISCOUNT = .99
-    UPDATE_TARGET_EVERY = 1000
+    UPDATE_TARGET_EVERY = 50
 
-    EPISODES = 1000
+    EPISODES = 10_000
 
     REWARD_PASS = -0.1
     REWARD_CARD = 0.1
@@ -30,7 +30,7 @@ class Constants:
 
     EPSILON = 1
     EPSILON_DECAY = 0.995
-    MIN_EPSILON = 0.01
+    MIN_EPSILON = 0.1
 
     DEVICE = (
         "cuda"
@@ -40,4 +40,4 @@ class Constants:
         else "cpu"
     )
 
-    AGGREGATE_STATS_EVERY = 10
+    AGGREGATE_STATS_EVERY = 100
