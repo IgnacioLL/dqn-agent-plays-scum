@@ -13,7 +13,7 @@ class ScumEnv:
     def __init__(self, number_players: int):
         self.number_players = number_players
         self.cards = self._deal_cards()
-        self.player_turn = 0
+        self.player_turn = 0    
         self.last_player = -1
         self.last_move = None
         self.players_in_game = [True] * self.number_players
@@ -21,6 +21,12 @@ class ScumEnv:
         self.n_players_in_round = sum(self.players_in_round)
         self.player_position_ending = 0
         self.player_order = [-1] * self.number_players
+        self.previous_state = [
+            torch.zeros(((C.NUMBER_OF_CARDS_PER_SUIT+1)*C.NUMBER_OF_SUITS)+1, dtype=torch.float32) 
+            for _ in range(self.number_players)
+            ]
+        self.previous_reward = [0] * self.number_players
+        self.previous_finish = [False] * self.number_players
 
     def _get_deck(self) -> List[int]:
         deck = [rank for _ in range(C.NUMBER_OF_SUITS) for rank in range(1, C.NUMBER_OF_CARDS_PER_SUIT + 1)]
@@ -154,11 +160,6 @@ class ScumEnv:
         
         return action_state
 
-    @staticmethod
-    def _print_model_prediction(prediction: torch.tensor, masked_probabilities: torch.tensor) -> None:
-        print("Prediction made by the model is: ", prediction)
-        print("Masked probabilities are: ", masked_probabilities)
-        print("-"*100)
 
 
     def decide_move(self, action_state: torch.tensor, epsilon: float=1, model: torch.nn.Module=None) -> int:
@@ -168,7 +169,15 @@ class ScumEnv:
             indices = [i for i, x in enumerate(action_state_list) if x == 1]
             return random.choice(indices) + 1
         else:
+
             prediction = model.predict(action_state, target=True)
+            print("Using model to decide move")
+
+            print("Prediction shape is: ", prediction.shape)
+            print("Action state shape is: ", action_state.shape)
+
+            print("For the action state: ", action_state[0])
+            print("Prediction made by the model is: ", prediction[0].cpu().detach().numpy().round(2))
             
             # We set a large negative value to the masked predictions that are not possible
             masked_predictions = prediction[0] * action_state
@@ -176,8 +185,8 @@ class ScumEnv:
 
             masked_predictions_npy[masked_predictions_npy == 0] = -1_000
 
-            if int(random.random()*1000) % 1000 == 0:
-                self._print_model_prediction(prediction, masked_predictions_npy)
+            # if int(random.random()*1000) % 1000 == 0:
+            #     self._print_model_prediction(prediction, masked_predictions_npy)
             
             return np.argsort(masked_predictions_npy)[-1] + 1  ## esto devolvera un valor entre 1 y 57 que sera la eleccion del modelo
     
@@ -187,41 +196,75 @@ class ScumEnv:
         self._update_player_turn()
         self._check_players_playing()
 
-    def make_move(self, action: int) -> Tuple[torch.tensor, int, bool]:
-        n_cards = action // (C.NUMBER_OF_CARDS_PER_SUIT+1)
-        card_number = action % (C.NUMBER_OF_CARDS_PER_SUIT+1)
+    def make_move(self, action: int) -> Tuple[torch.tensor, int, bool, int]:
+        ## This will be the variables returned to compute the reward.
+        ## We will use the past events to be able to compute the new states.
+        agent_number = self.player_turn
 
+        previous_state = self.previous_state[agent_number]
+        previous_reward = self.previous_reward[agent_number]
+        previous_finish = self.previous_finish[agent_number]
+        new_state = self.convert_to_binary_player_turn_cards() ## this is the new state
+
+        # Update previous state to the new state
+        self.previous_state[agent_number] = new_state
+
+        n_cards, card_number = self._decode_action(action)
+
+        if self._is_pass_action(n_cards):
+            return self._handle_pass_action(previous_state, new_state, previous_reward, previous_finish, agent_number)
+
+        skip = self._is_skip_move(card_number)
+
+        ## Delete the cards played from the player's hand also last move and last player to play.
+        self._update_game_state(card_number, n_cards)
+        
+        ## Check if the player has finished the game and compute the reward
+        finish, finishing_reward = self._check_player_finish()
+        cards_reward = self._calculate_cards_reward(n_cards, finish)
+        total_reward = cards_reward + finishing_reward
+
+        ## Update the self.previous_reward and self.previous_finish
+        self._update_previous_state(total_reward, finish)
+
+        ## This changes self.player_turn
+        self._update_player_turn(skip)
+
+        return previous_state, new_state, previous_reward, previous_finish, agent_number
+
+    def _decode_action(self, action: int) -> Tuple[int, int]:
+        n_cards = action // (C.NUMBER_OF_CARDS_PER_SUIT + 1)
+        card_number = action % (C.NUMBER_OF_CARDS_PER_SUIT + 1)
         if card_number == 0:
             card_number = C.NUMBER_OF_CARDS_PER_SUIT + 1
+        return n_cards, card_number
 
-        if n_cards == 4:
-            agent_number = self.player_turn
-            self._handle_unable_to_play()
-            return self.convert_to_binary_player_turn_cards(), C.REWARD_PASS, False, agent_number
+    def _is_pass_action(self, n_cards: int) -> bool:
+        return n_cards == 4
 
-        skip = self.last_move is not None and self.last_move[0] == card_number
+    def _handle_pass_action(self, previous_state, new_state, previous_reward, previous_finish, agent_number):
+        self.previous_reward[agent_number] = C.REWARD_PASS
+        self.previous_finish[agent_number] = False
+        self._handle_unable_to_play()
+        return previous_state, new_state, previous_reward, previous_finish, agent_number
 
+    def _is_skip_move(self, card_number: int) -> bool:
+        return self.last_move is not None and self.last_move[0] == card_number
+
+    def _update_game_state(self, card_number: int, n_cards: int):
         self._update_player_cards(card_number, n_cards)
         self.last_move = [card_number, n_cards]
-        agent_number = self.player_turn
-        finish, finishing_reward = self._check_player_finish()
-        new_observation = self.convert_to_binary_player_turn_cards()
-        cards_reward = C.REWARD_CARD * (n_cards+1)
-
-        if finish:
-            skip = False
-
         self.last_player = self.player_turn
-        self._update_player_turn(skip=skip)
 
-        return new_observation, cards_reward + finishing_reward, finish, agent_number
+    def _calculate_cards_reward(self, n_cards: int, finish: bool) -> int:
+        cards_reward = C.REWARD_CARD * (n_cards + 1)
+        if finish:
+            cards_reward += C.REWARD_EMPTY_HAND
+        return cards_reward
 
-    def automate_move(self) -> None:
-        encoded_cards_to_play = self.get_cards_to_play()
-        if encoded_cards_to_play is None: ## end of round
-            return
-        value = self.decide_move(encoded_cards_to_play)
-        new_observation, reward, finish, agent_number = self.make_move(value)
+    def _update_previous_state(self, total_reward: int, finish: bool):
+        self.previous_reward[self.player_turn] = total_reward
+        self.previous_finish[self.player_turn] = finish
 
     def _print_game_state(self) -> None:
         if self.last_move is not None:
@@ -242,11 +285,9 @@ class ScumEnv:
         print("Last player to play was: ", self.last_player)
         print(f"The cards of everyone are: {self.cards}")
         print(f"Move made: {C.N_CARDS_TO_TEXT[n_cards]} {str(card_number)}")
-
-
-
-if __name__ == '__main__':
-    env = ScumEnv(5)
-    for _ in range(100):
-        env.automate_move()
-
+    
+    @staticmethod
+    def _print_model_prediction(prediction: torch.tensor, masked_probabilities: torch.tensor) -> None:
+        print("Prediction made by the model is: ", prediction)
+        print("Masked probabilities are: ", masked_probabilities)
+        print("-"*100)
