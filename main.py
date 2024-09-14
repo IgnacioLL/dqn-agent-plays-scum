@@ -5,10 +5,12 @@ from tqdm import tqdm
 import numpy as np
 from utils import print_rl_variables
 
+import pickle as pkl
+
 
 def main():
     env = ScumEnv(5)
-    agents = [DQNAgent(epsilon=C.EPSILON, learning_rate=10**((i+1)*-1)) for i in range(5)]
+    agents = [DQNAgent(epsilon=C.EPSILON, learning_rate=0.0001) for _ in range(5)]
     ep_rewards = [[] for _ in range(5)]
 
 
@@ -19,19 +21,20 @@ def main():
         step = 1
 
         # Reset environment and get initial state
-        env.reset()
+        env.reset() 
         print("Starting episode")
         print("_"*100)
         # Reset flag and start iterating until episode ends
         while np.array(finish_agents).sum() != 5:
+
+            print("Playing")
             agent = agents[env.player_turn]
-            current_state = env.get_cards_to_play()
-            action = env.decide_move(current_state, epsilon=agent.epsilon, model=agent)
+            action_state = env.get_cards_to_play()
+            action = env.decide_move(action_state, epsilon=agent.epsilon, model=agent)
             env._print_move(action)
-            new_state, reward, finish, agent_number = env.make_move(action)
+            current_state, new_state, reward, finish, agent_number = env.make_move(action)
             finish_agents[agent_number] = finish
-            reward = reward * -1
-            # Update episode reward for the current agent
+
             episode_rewards[agent_number] += reward
 
             # Every step we update replay memory and train main network
@@ -40,7 +43,7 @@ def main():
             current_state = new_state
             step += 1
             print("Number of players finished: ", finish_agents)
-        
+
         # Append episode rewards to the lists and log stats
         for i in range(5):
             ep_rewards[i].append(episode_rewards[i])
@@ -50,11 +53,10 @@ def main():
                 min_reward = min(ep_rewards[i][-C.AGGREGATE_STATS_EVERY:])
                 max_reward = max(ep_rewards[i][-C.AGGREGATE_STATS_EVERY:])
                 print(f"Agent {i+1}: Avg: {average_reward:.2f}, Min: {min_reward:.2f}, Max: {max_reward:.2f} with epsilon {agents[i].epsilon} and learning rate {agents[i].learning_rate}")
-            
+
         # Decay epsilon for all agents
-        # We will no decay epsilon for the middle agent, to check if it's learning something
-        for agent in (agents[1:]):
-            agent.decay_epsilon()
+        # For now we will only train the first agent if it works, then we will train the others
+        agents[0].decay_epsilon()
         
 if __name__ == "__main__":
     main()
