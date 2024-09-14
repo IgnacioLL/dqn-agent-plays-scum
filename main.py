@@ -5,8 +5,6 @@ from tqdm import tqdm
 import numpy as np
 from utils import print_rl_variables
 
-import pickle as pkl
-
 
 def main():
     env = ScumEnv(5)
@@ -27,7 +25,6 @@ def main():
         # Reset flag and start iterating until episode ends
         while np.array(finish_agents).sum() != 5:
 
-            print("Playing")
             agent = agents[env.player_turn]
             action_state = env.get_cards_to_play()
             action = env.decide_move(action_state, epsilon=agent.epsilon, model=agent)
