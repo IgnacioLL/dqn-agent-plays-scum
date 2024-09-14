@@ -120,8 +120,6 @@ class DQNAgent:
             if random.random() < 0.1:
                 print("Outputs: ", outputs)
                 print("Loss: ", loss)
-
-            
             
             # Backward pass and optimize
             ## this is for the mixed precision training,
