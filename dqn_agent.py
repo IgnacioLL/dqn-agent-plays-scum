@@ -117,10 +117,6 @@ class DQNAgent:
             outputs = self.model(batch_X)
             loss = self.criterion(outputs, batch_y)
 
-            if random.random() < 0.1:
-                print("Outputs: ", outputs)
-                print("Loss: ", loss)
-            
             # Backward pass and optimize
             ## this is for the mixed precision training,
             # it is used to scale the loss and the gradients 
