@@ -4,7 +4,7 @@ from env import ScumEnv
 from tqdm import tqdm 
 import numpy as np
 from utils import print_rl_variables
-
+import torch
 
 def main():
     env = ScumEnv(5)
@@ -27,7 +27,7 @@ def main():
 
             agent = agents[env.player_turn]
             action_state = env.get_cards_to_play()
-            action = env.decide_move(action_state, epsilon=agent.epsilon, model=agent)
+            action = env.decide_move(action_state, epsilon=agent.epsilon, agent=agent)
             env._print_move(action)
             current_state, new_state, reward, finish, agent_number = env.make_move(action)
             finish_agents[agent_number] = finish
@@ -35,9 +35,15 @@ def main():
             episode_rewards[agent_number] += reward
 
             # Every step we update replay memory and train main network
-            agent.update_replay_memory((current_state, action, reward, new_state, finish))
+            agent.update_replay_memory((current_state, action, reward, new_state, False))
+            
+            if finish:
+                current_state, new_state, reward = env.get_stats_after_finish(agent_number=agent_number)
+                episode_rewards[agent_number] += reward
+                agent.update_replay_memory((current_state, action, reward, new_state, finish))
+                finish_agents[agent_number] = finish
+
             agent.train(finish)
-            current_state = new_state
             step += 1
             print("Number of players finished: ", finish_agents)
 
