@@ -117,7 +117,6 @@ class ScumEnv:
             self.player_position_ending += 1
             self.last_move = None
             self._reinitialize_round()
-            self._update_player_turn()
             return True, finishing_reward
         return False, 0
 
@@ -162,15 +161,15 @@ class ScumEnv:
 
 
 
-    def decide_move(self, action_state: torch.tensor, epsilon: float=1, model: torch.nn.Module=None) -> int:
-
+    def decide_move(self, action_state: torch.tensor, epsilon: float=1, agent: torch.nn.Module=None) -> int:
+        if action_state is None:
+            action_state = torch.tensor([0 for _ in range((C.NUMBER_OF_CARDS_PER_SUIT+1)*C.NUMBER_OF_SUITS)] + [1], dtype=torch.float32).to(C.DEVICE)
         if random.random() < epsilon:
             action_state_list = action_state.cpu().detach().numpy()
             indices = [i for i, x in enumerate(action_state_list) if x == 1]
             return random.choice(indices) + 1
         else:
-
-            prediction = model.predict(action_state, target=True)
+            prediction = agent.predict(action_state, target=True)
             print("Using model to decide move")
 
             print("Prediction shape is: ", prediction.shape)
@@ -203,7 +202,6 @@ class ScumEnv:
 
         previous_state = self.previous_state[agent_number]
         previous_reward = self.previous_reward[agent_number]
-        previous_finish = self.previous_finish[agent_number]
         new_state = self.convert_to_binary_player_turn_cards() ## this is the new state
 
         # Update previous state to the new state
@@ -212,7 +210,7 @@ class ScumEnv:
         n_cards, card_number = self._decode_action(action)
 
         if self._is_pass_action(n_cards):
-            return self._handle_pass_action(previous_state, new_state, previous_reward, previous_finish, agent_number)
+            return self._handle_pass_action(previous_state, new_state, previous_reward, False, agent_number)
 
         skip = self._is_skip_move(card_number)
 
@@ -230,7 +228,13 @@ class ScumEnv:
         ## This changes self.player_turn
         self._update_player_turn(skip)
 
-        return previous_state, new_state, previous_reward, previous_finish, agent_number
+        return previous_state, new_state, previous_reward, finish, agent_number
+    
+    def get_stats_after_finish(self, agent_number: int) -> Tuple[int, int, int]:
+        current_state = self.previous_state[agent_number]
+        new_state = torch.zeros((C.NUMBER_OF_CARDS_PER_SUIT+1)*C.NUMBER_OF_SUITS+1)
+        reward = self.previous_reward[agent_number]
+        return current_state, new_state, reward
 
     def _decode_action(self, action: int) -> Tuple[int, int]:
         n_cards = action // (C.NUMBER_OF_CARDS_PER_SUIT + 1)
@@ -244,7 +248,6 @@ class ScumEnv:
 
     def _handle_pass_action(self, previous_state, new_state, previous_reward, previous_finish, agent_number):
         self.previous_reward[agent_number] = C.REWARD_PASS
-        self.previous_finish[agent_number] = False
         self._handle_unable_to_play()
         return previous_state, new_state, previous_reward, previous_finish, agent_number
 
