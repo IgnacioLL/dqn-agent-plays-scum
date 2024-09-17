@@ -4,3 +4,7 @@ __pycache__/*
 lab.py
 *.lprof
 *.pkl
+models/*
+runs/*
+*.pt
+*.pth
