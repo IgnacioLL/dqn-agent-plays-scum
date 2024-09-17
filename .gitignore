@@ -3,3 +3,4 @@ __pycache__/*
 *.txt
 lab.py
 *.lprof
+*.pkl
