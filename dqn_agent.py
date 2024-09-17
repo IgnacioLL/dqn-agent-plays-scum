@@ -12,6 +12,8 @@ from collections import deque
 
 from typing import Tuple
 
+import pickle as pkl
+
 class ScumModel(nn.Module):
     def __init__(self):
         ## Create a neural network with 2 layers of 512 neurons each 
@@ -30,8 +32,12 @@ class ScumModel(nn.Module):
 
 
 class DQNAgent:
-    def __init__(self, epsilon: float = 1.0, learning_rate: float = 0.001) -> None:
-        self.model = self.create_model()
+    def __init__(self, epsilon: float = 1.0, learning_rate: float = 0.001, discount: float = None, path: str = None) -> None:
+        if path is not None:
+            self.model = self.load_model(path)       
+        else:
+            self.model = self.create_model()
+            
         self.target_model = self.create_model()
         self.target_model.load_state_dict(self.model.state_dict())
         
@@ -43,9 +49,10 @@ class DQNAgent:
         self.target_update_counter = 0
         
         self.scaler = amp.GradScaler()
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.HuberLoss()
         self.learning_rate = learning_rate
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.discount = C.DISCOUNT if discount is None else discount
 
     def create_model(self) -> ScumModel:
         model = ScumModel().to(C.DEVICE)
@@ -63,12 +70,9 @@ class DQNAgent:
         return prediction
 
 
-       # Trains main network every step during episode
+    # Trains main network every step during episode
     def train(self, terminal_state):
         self.model.train()
-
-        ## Initialize the running loss to 0 this will be used to store the loss of the training
-        running_loss = 0.0
 
         # Start training only if certain number of samples is already saved
         if len(self.replay_memory) < C.MIN_REPLAY_MEMORY_SIZE:
@@ -81,22 +85,32 @@ class DQNAgent:
         current_states = torch.stack([transition[0] for transition in minibatch]).to(C.DEVICE) 
         current_qs_list = self.predict(current_states, target=False)
 
+        ## delete impossible actions
+        tensor_w_possible_actions = current_states*current_qs_list
+        current_qs_list = torch.where(tensor_w_possible_actions == 0, torch.tensor(float('-inf'), device=C.DEVICE), tensor_w_possible_actions)
+
+
         ## Predict the Q's value for the new current states with the target model, which is the one that is updated every C.UPDATE_TARGET_EVERY episodes
-        new_current_states = torch.stack([transition[3] for transition in minibatch]).to(C.DEVICE)
-        future_qs_list = self.predict(new_current_states, target=True)
+        new_current_state = torch.stack([transition[3] for transition in minibatch]).to(C.DEVICE)
+        future_qs_list = self.predict(new_current_state, target=True)
+
+        ## delete impossible actions
+        tensor_w_possible_actions = new_current_state*future_qs_list
+        future_qs_list = torch.where(tensor_w_possible_actions == 0, torch.tensor(float('-inf'), device=C.DEVICE), tensor_w_possible_actions)
+
 
         X = []
         y = []
 
         # Now we need to enumerate our batches
-        for index, (current_state, action, reward, new_current_state, finish) in enumerate(minibatch):
+        for index, (current_state, action, reward, _, finish) in enumerate(minibatch):
 
             # If not a terminal state, get new q from future states, otherwise set it to 0
             # almost like with Q Learning, but we use just part of equation here
             if not finish:
                 # that .item() does is to get the value of the tensor as a python number    
                 max_future_q = torch.max(future_qs_list[index]).item() 
-                new_q = reward + C.DISCOUNT * max_future_q
+                new_q = reward + self.discount * max_future_q
             else:
                 new_q = reward
 
@@ -126,9 +140,6 @@ class DQNAgent:
             # Update the scale for next iteration
             self.scaler.update()
             
-            running_loss += loss.item()
-        
-
         # Update target network counter every episode
         if terminal_state:
             self.target_update_counter += 1
@@ -146,3 +157,9 @@ class DQNAgent:
             self.epsilon *= self.epsilon_decay
             self.epsilon = max(self.epsilon_min, self.epsilon)
 
+    def save_model(self, path: str = "model.pt") -> None:
+        torch.save(self.model.state_dict(), path)
+
+    def load_model(self, path: str = "model.pt") -> nn.Module:
+        model = torch.load(path)
+        return model
