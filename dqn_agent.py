@@ -84,19 +84,19 @@ class DQNAgent:
         minibatch = random.sample(self.replay_memory, C.BATCH_SIZE)
 
         ## Predict the Q's value for the current states
-        current_states = torch.stack([transition[0] for transition in minibatch]).to(C.DEVICE) 
+        current_states = torch.stack([transition[0].to(C.DEVICE) for transition in minibatch]) 
         current_qs_list = self.predict(current_states, target=False)
 
-        ## delete impossible actions
+        # ## delete impossible actions
         tensor_w_possible_actions = current_states*current_qs_list
         current_qs_list = torch.where(tensor_w_possible_actions == 0, torch.tensor(float('-inf'), device=C.DEVICE), tensor_w_possible_actions)
 
 
         ## Predict the Q's value for the new current states with the target model, which is the one that is updated every C.UPDATE_TARGET_EVERY episodes
-        new_current_state = torch.stack([transition[3] for transition in minibatch]).to(C.DEVICE)
+        new_current_state = torch.stack([transition[3].to(C.DEVICE) for transition in minibatch])
         future_qs_list = self.predict(new_current_state, target=True)
 
-        ## delete impossible actions
+        # ## delete impossible actions
         tensor_w_possible_actions = new_current_state*future_qs_list
         future_qs_list = torch.where(tensor_w_possible_actions == 0, torch.tensor(float('-inf'), device=C.DEVICE), tensor_w_possible_actions)
 
@@ -122,12 +122,12 @@ class DQNAgent:
             current_qs[action-1] = new_q
 
             # And append to our training data
-            X.append(current_state)
-            y.append(current_qs)
+            X.append(current_state.to(C.DEVICE))
+            y.append(current_qs.to(C.DEVICE))
         
         ## Convert the lists to tensors
-        batch_X = torch.stack(X).to(C.DEVICE)
-        batch_y = torch.stack(y).to(C.DEVICE)
+        batch_X = torch.stack(X)
+        batch_y = torch.stack(y)
 
         with amp.autocast():
             outputs = self.model(batch_X)

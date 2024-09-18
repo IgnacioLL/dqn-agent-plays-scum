@@ -28,7 +28,7 @@ def main():
             agent = agents[env.player_turn]
             action_state = env.get_cards_to_play()
             action = env.decide_move(action_state, epsilon=agent.epsilon, agent=agent)
-            
+            env._print_move(action)
             current_state, new_state, reward, finish, agent_number = env.make_move(action)
             finish_agents[agent_number] = finish
 
@@ -48,6 +48,10 @@ def main():
 
         # Append episode rewards to the lists and log stats
         for i in range(5):
+            if episode_rewards[i] < -20:
+                print("The reward was lower than -20 check what happened")
+                assert False, "The reward was lower than -20 check what happened"
+
             ep_rewards[i].append(episode_rewards[i])
         if not episode % C.AGGREGATE_STATS_EVERY:
             for i in range(5):
@@ -61,7 +65,7 @@ def main():
                     max_average_reward[i] = average_reward
                     agents[i].save_model(path=f"models/best_models/agent_{i+1}_episode_{episode}_max_avg_{max_average_reward[i]:.2f}.pt")
                 else:
-                    agents[i].save_model(path=f"models/checkpoints/agent_{i+1}_episode_{episode}_max_avg_{max_average_reward[i]:.2f}.pt")
+                    agents[i].save_model(path=f"models/checkpoints/agent_{i+1}.pt")
         # Decay epsilon for all agents
         # For now we will only train the first agent if it works, then we will train the others
         

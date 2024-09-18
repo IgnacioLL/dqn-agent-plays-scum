@@ -11,11 +11,10 @@ class Constants:
 
     REPLAY_MEMORY_SIZE = 100_000 ## 
     MIN_REPLAY_MEMORY_SIZE = 5_000
-    MODEL_NAME = "256x2"
 
     BATCH_SIZE = 64
     DISCOUNT = .99
-    UPDATE_TARGET_EVERY = 1_000
+    UPDATE_TARGET_EVERY = 2_000
 
     EPISODES = 10_000
 
@@ -31,7 +30,7 @@ class Constants:
     REWARD_EMPTY_HAND = 0.2
 
     EPSILON = 1
-    EPSILON_DECAY = 0.999
+    EPSILON_DECAY = 0.9999
     MIN_EPSILON = 0.01
 
     DEVICE = (
@@ -42,4 +41,4 @@ class Constants:
         else "cpu"
     )
 
-    AGGREGATE_STATS_EVERY = 100
+    AGGREGATE_STATS_EVERY = 200
