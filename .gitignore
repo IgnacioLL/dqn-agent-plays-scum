@@ -1,6 +1,6 @@
 *.ipynb
 __pycache__/*
-*.txt
+log.txt
 lab.py
 *.lprof
 *.pkl
