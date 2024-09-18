@@ -12,8 +12,6 @@ from collections import deque
 
 from typing import Tuple
 
-import pickle as pkl
-
 class ScumModel(nn.Module):
     def __init__(self):
         ## Create a neural network with 2 layers of 512 neurons each 
@@ -21,9 +19,13 @@ class ScumModel(nn.Module):
         self.linear_nn = nn.Sequential(
             nn.Linear(C.NUMBER_OF_POSSIBLE_STATES, 512),
             nn.ReLU(),
-            nn.Linear(512, 512),
+            nn.Linear(512, 1024),
             nn.ReLU(),
-            nn.Linear(512, C.NUMBER_OF_POSSIBLE_STATES), 
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(), 
+            nn.Linear(256, C.NUMBER_OF_POSSIBLE_STATES), 
         )
 
     def forward(self, x):

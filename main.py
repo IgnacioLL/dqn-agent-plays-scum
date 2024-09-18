@@ -8,7 +8,7 @@ writer = SummaryWriter()
 
 def main():
     env = ScumEnv(5)
-    agents = [DQNAgent(epsilon=C.EPSILON, learning_rate=0.0001) for _ in range(5)]
+    agents = [DQNAgent(epsilon=C.EPSILON, learning_rate=1e-4) for _ in range(5)]
     ep_rewards = [[] for _ in range(5)]
     max_average_reward = [-np.inf for _ in range(5)]
 
@@ -64,7 +64,9 @@ def main():
                     agents[i].save_model(path=f"models/checkpoints/agent_{i+1}_episode_{episode}_max_avg_{max_average_reward[i]:.2f}.pt")
         # Decay epsilon for all agents
         # For now we will only train the first agent if it works, then we will train the others
-        agents[0].decay_epsilon()
+        
+        for agent in agents[:4]:
+            agent.decay_epsilon()
         
 if __name__ == "__main__":
     main()
