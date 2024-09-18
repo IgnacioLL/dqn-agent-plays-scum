@@ -1,5 +1,3 @@
-import pandas as pd
-from sklearn.preprocessing import OneHotEncoder
 import numpy as np
 import torch
 from constants import Constants as C
