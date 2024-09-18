@@ -13,7 +13,7 @@ class Constants:
     MIN_REPLAY_MEMORY_SIZE = 5_000
     MODEL_NAME = "256x2"
 
-    BATCH_SIZE = 1024
+    BATCH_SIZE = 64
     DISCOUNT = .99
     UPDATE_TARGET_EVERY = 1_000
 
