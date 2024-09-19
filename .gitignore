@@ -8,3 +8,4 @@ models/*
 runs/*
 *.pt
 *.pth
+__pycache__/*
