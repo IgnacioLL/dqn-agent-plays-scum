@@ -7,6 +7,8 @@ from memory.utils import device
 
 from constants import Constants as C
 
+import pickle as pkl
+
 
 class PrioritizedReplayBuffer:
     def __init__(self, state_size, action_size, buffer_size, eps=1e-2, alpha=0.1, beta=0.1):
@@ -49,6 +51,7 @@ class PrioritizedReplayBuffer:
     def sample(self, batch_size):
         assert self.real_size >= batch_size, "buffer contains less samples than batch size"
 
+
         sample_idxs, tree_idxs = [], []
         priorities = torch.empty(batch_size, 1, dtype=torch.float)
 
@@ -56,15 +59,19 @@ class PrioritizedReplayBuffer:
         # Next, a value is uniformly sampled from each range. Finally the transitions that correspond
         # to each of these sampled values are retrieved from the tree. (Appendix B.2.1, Proportional prioritization)
         segment = self.tree.total / batch_size
+
+
         for i in range(batch_size):
             a, b = segment * i, segment * (i + 1)
 
-            cumsum = random.uniform(a, b)
+            
             # sample_idx is a sample index in buffer, needed further to sample actual transitions
             # tree_idx is a index of a sample in the tree, needed further to update priorities
-            tree_idx, priority, sample_idx = self.tree.get(cumsum)
-
-            priorities[i] = priority
+            sample_idx = None
+            while sample_idx is None:
+                cumsum = random.uniform(a, b)
+                tree_idx, priority, sample_idx = self.tree.get(cumsum)
+            priorities[i] = float(priority) 
             tree_idxs.append(tree_idx)
             sample_idxs.append(sample_idx)
 
@@ -87,13 +94,14 @@ class PrioritizedReplayBuffer:
         # so that max_i w_i = 1. We found that this worked better in practice as it kept all weights
         # within a reasonable range, avoiding the possibility of extremely large updates. (Appendix B.2.1, Proportional prioritization)
         weights = weights / weights.max()
+        weights = weights.to(C.DEVICE)
 
         batch = (
-            self.state[sample_idxs].to(device()),
-            self.action[sample_idxs].to(device()),
-            self.reward[sample_idxs].to(device()),
-            self.next_state[sample_idxs].to(device()),
-            self.done[sample_idxs].to(device())
+            self.state[sample_idxs].to(C.DEVICE),
+            self.action[sample_idxs].to(C.DEVICE),
+            self.reward[sample_idxs].to(C.DEVICE),
+            self.next_state[sample_idxs].to(C.DEVICE),
+            self.done[sample_idxs].to(C.DEVICE)
         )
         return batch, weights, tree_idxs
 
@@ -144,10 +152,10 @@ class ReplayBuffer:
         sample_idxs = np.random.choice(self.real_size, batch_size, replace=False)
 
         batch = (
-            self.state[sample_idxs].to(device()),
-            self.action[sample_idxs].to(device()),
-            self.reward[sample_idxs].to(device()),
-            self.next_state[sample_idxs].to(device()),
-            self.done[sample_idxs].to(device())
+            self.state[sample_idxs].to(C.DEVICE),
+            self.action[sample_idxs].to(C.DEVICE),
+            self.reward[sample_idxs].to(C.DEVICE),
+            self.next_state[sample_idxs].to(C.DEVICE),
+            self.done[sample_idxs].to(C.DEVICE)
         )
         return batch
