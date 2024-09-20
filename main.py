@@ -48,7 +48,7 @@ def log_stats(agent_pool: AgentPool, ep_rewards: list[list[int]], episode: int):
             average_reward = sum(recent_rewards) / len(recent_rewards)
             min_reward = min(recent_rewards)
             max_reward = max(recent_rewards)
-            print(f"Agent {i+1}: Avg: {average_reward:.2f}, Min: {min_reward:.2f}, Max: {max_reward:.2f} with epsilon {agent_pool.get_agent(i).epsilon} and learning rate {agent_pool.get_agent(i).learning_rate}")
+            print(f"Agent {i+1}: Avg: {average_reward:.2f}, Min: {min_reward:.2f}, Max: {max_reward:.2f} with epsilon {agent_pool.get_agent(i).epsilon} and learning rate {agent_pool.get_agent(i).current_learning_rate:.6f}")
             writer.add_scalar(f"Reward/Agent {i+1}/Avg Reward", average_reward, episode)
             writer.flush()
             yield i, average_reward
