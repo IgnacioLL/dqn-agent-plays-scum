@@ -182,7 +182,7 @@ class ScumEnv:
             masked_predictions = prediction[0] * action_state
             masked_predictions_npy  = masked_predictions.cpu().detach().numpy()
 
-            masked_predictions_npy[masked_predictions_npy == 0] = -1_000
+            masked_predictions_npy[masked_predictions_npy == 0] = float("-inf")
 
             # if int(random.random()*1000) % 1000 == 0:
             #     self._print_model_prediction(prediction, masked_predictions_npy)
