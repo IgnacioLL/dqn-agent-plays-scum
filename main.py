@@ -72,9 +72,9 @@ def main(load_checkpoints: bool = False, number_of_agents: int = 5, lr: float = 
             for i, average_reward in log_stats(agent_pool, ep_rewards, episode):
                 average_rewards.append(average_reward)
                 save_models(agent_pool, i)
-    
-            agent_pool.refresh_agents()
+            
             agent_pool.update_order(average_rewards)
+            agent_pool.refresh_agents()
             agent_pool.save_agents()
 
 
