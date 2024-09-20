@@ -185,10 +185,14 @@ class AgentPool:
         
     def save_agents(self) -> None:
         self.previous_agents = self.agents.copy()
+
     def refresh_agents(self) -> None:
         # Load the weights of the best performing agents into the worst performing ones
         worst_agent, second_worst_agent = self.order[-1], self.order[-2]
         best_agent, second_best_agent = self.previous_order[0], self.previous_order[1]
 
         self.agents[worst_agent].model.load_state_dict(self.previous_agents[best_agent].model.state_dict())
+        self.agents[worst_agent].target_model.load_state_dict(self.previous_agents[best_agent].target_model.state_dict())
+
         self.agents[second_worst_agent].model.load_state_dict(self.previous_agents[second_best_agent].model.state_dict())
+        self.agents[second_worst_agent].target_model.load_state_dict(self.previous_agents[second_best_agent].target_model.state_dict())
