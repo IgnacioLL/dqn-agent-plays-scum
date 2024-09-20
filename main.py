@@ -1,27 +1,21 @@
-from dqn_agent import DQNAgent
+from dqn_agent import AgentPool
 from constants import Constants as C
 from env import ScumEnv
 from tqdm import tqdm 
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
-import pickle as pkl
 
 writer = SummaryWriter()
 
-def initialize_agents(load_checkpoints):
-    if load_checkpoints:
-        return [DQNAgent(epsilon=C.EPSILON, learning_rate=1e-4, path=f"models/checkpoints/agent_{i+1}.pt") for i in range(5)]
-    return [DQNAgent(epsilon=C.EPSILON, learning_rate=1e-4) for _ in range(5)]
-
-def run_episode(env, agents, ep_rewards, total_steps):
+def run_episode(env, agent_pool, ep_rewards, total_steps):
     finish_agents = [False] * 5
     episode_rewards = [0] * 5
     env.reset()
     print("Starting episode")
     print("_" * 100)
 
-    while np.array(finish_agents).sum() != 5:
-        agent = agents[env.player_turn]
+    while np.array(finish_agents).sum() != agent_pool.number_of_agents:
+        agent = agent_pool.get_agent(env.player_turn)
         action_state = env.get_cards_to_play()
         action = env.decide_move(action_state, epsilon=agent.epsilon, agent=agent)
         env._print_move(action)
@@ -45,50 +39,50 @@ def run_episode(env, agents, ep_rewards, total_steps):
 
     return episode_rewards, total_steps
 
-def log_stats(agents, ep_rewards, episode):
-    if episode % C.AGGREGATE_STATS_EVERY == 0:
-        for i in range(5):
+def log_stats(agent_pool, ep_rewards, episode):
+        for i in range(agent_pool.number_of_agents):
             recent_rewards = ep_rewards[i][-C.AGGREGATE_STATS_EVERY:]
             average_reward = sum(recent_rewards) / len(recent_rewards)
             min_reward = min(recent_rewards)
             max_reward = max(recent_rewards)
-            print(f"Agent {i+1}: Avg: {average_reward:.2f}, Min: {min_reward:.2f}, Max: {max_reward:.2f} with epsilon {agents[i].epsilon} and learning rate {agents[i].learning_rate}")
+            print(f"Agent {i+1}: Avg: {average_reward:.2f}, Min: {min_reward:.2f}, Max: {max_reward:.2f} with epsilon {agent_pool.get_agent(i).epsilon} and learning rate {agent_pool.get_agent(i).learning_rate}")
             writer.add_scalar(f"Reward/Agent {i+1}/Avg Reward", average_reward, episode)
             writer.flush()
             yield i, average_reward
 
-def save_models(agents, max_average_reward, i, average_reward, episode):
+def save_models(agent_pool, max_average_reward, i, average_reward, episode):
     if average_reward > max_average_reward[i]:
         max_average_reward[i] = average_reward
-        agents[i].save_model(path=f"models/best_models/agent_{i+1}_episode_{episode}_max_avg_{max_average_reward[i]:.2f}.pt")
+        agent_pool.get_agent(i).save_model(path=f"models/best_models/agent_{i+1}_episode_{episode}_max_avg_{max_average_reward[i]:.2f}.pt")
     else:
-        agents[i].save_model(path=f"models/checkpoints/agent_{i+1}.pt")
+        agent_pool.get_agent(i).save_model(path=f"models/checkpoints/agent_{i+1}.pt")
 
-def main(load_checkpoints: bool = False):
-    env = ScumEnv(5)
-    agents = initialize_agents(load_checkpoints)
-    ep_rewards = [[] for _ in range(5)]
-    max_average_reward = [-np.inf for _ in range(5)]
+def main(load_checkpoints: bool = False, number_of_agents: int = 5):
+    env = ScumEnv(number_of_agents)
+    agent_pool = AgentPool(number_of_agents, load_checkpoints=load_checkpoints)
+    ep_rewards = [[] for _ in range(number_of_agents)]
+    max_average_reward = [-np.inf for _ in range(number_of_agents)]
     total_steps = 0
 
     for episode in tqdm(range(1, C.EPISODES + 1), ascii=True, unit='episodes'):
-        episode_rewards, total_steps = run_episode(env, agents, ep_rewards, total_steps)
+        episode_rewards, total_steps = run_episode(env, agent_pool, ep_rewards, total_steps)
 
         for i, reward in enumerate(episode_rewards):
-            if reward < -20:
-                print("The reward was lower than -20 check what happened")
-                assert False, "The reward was lower than -20 check what happened"
             ep_rewards[i].append(reward)
 
-        for i, average_reward in log_stats(agents, ep_rewards, episode):
-            save_models(agents, max_average_reward, i, average_reward, episode)
+        if episode % C.AGGREGATE_STATS_EVERY == 0:
+            average_rewards = []
+            for i, average_reward in log_stats(agent_pool, ep_rewards, episode):
+                average_rewards.append(average_reward)
+            save_models(agent_pool, max_average_reward, i, average_reward, episode)
+    
+            agent_pool.refresh_agents()
+            agent_pool.update_order(average_rewards)
+            agent_pool.save_agents()
 
-        for agent in agents[:4]:
-            agent.decay_epsilon()
 
-
-        for i in range(5):
-            pkl.dump(agents[i].buffer, open(f"buffer_{i}.pkl", "wb"))
+        for agent in range(agent_pool.number_of_agents):
+            agent_pool.get_agent(agent).decay_epsilon()
 
 if __name__ == "__main__":
-    main()
+    main(number_of_agents=C.NUMBER_OF_AGENTS)
