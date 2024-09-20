@@ -171,11 +171,6 @@ class ScumEnv:
         else:
             prediction = agent.predict(action_state, target=True)
             print("Using model to decide move")
-
-            print("Prediction shape is: ", prediction.shape)
-            print("Action state shape is: ", action_state.shape)
-
-            print("For the action state: ", action_state[0])
             print("Prediction made by the model is: ", prediction[0].cpu().detach().numpy().round(2))
             
             # We set a large negative value to the masked predictions that are not possible
@@ -286,7 +281,6 @@ class ScumEnv:
         
         print("Player to move is: ", self.player_turn)
         print("Last player to play was: ", self.last_player)
-        print(f"The cards of everyone are: {self.cards}")
         print(f"Move made: {C.N_CARDS_TO_TEXT[n_cards]} {str(card_number)}")
     
     @staticmethod
