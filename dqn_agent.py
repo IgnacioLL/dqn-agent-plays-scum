@@ -1,17 +1,12 @@
-import os
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, TensorDataset
 from torch import optim
 import torch.cuda.amp as amp
-from torch.nn import functional as F
 
 import numpy as np
 from constants import Constants as C
-import random
-from collections import deque
 
-from typing import Tuple
+from typing import Tuple, List
 from torch.utils.tensorboard import SummaryWriter
 
 from memory.buffer import PrioritizedReplayBuffer
@@ -161,3 +156,39 @@ class DQNAgent:
     def load_model(self, path: str = "model.pt") -> nn.Module:
         model = torch.load(path)
         return model
+
+
+class AgentPool:
+    def __init__(self, number_of_agents: int, load_checkpoints: bool = False, learning_rate: float = 1e-4, epsilon: float = 1.0, discount: float = None):
+        epsilon = C.EPSILON if epsilon is None else epsilon
+        discount = C.DISCOUNT if discount is None else discount
+
+        self.number_of_agents = number_of_agents
+        
+        self.agents = (
+            [DQNAgent(epsilon=epsilon, learning_rate=learning_rate, discount=discount, path=f"models/checkpoints/agent_{i+1}.pt") for i in range(number_of_agents)] 
+            if load_checkpoints else 
+            [DQNAgent(epsilon=epsilon, learning_rate=learning_rate, discount=discount) for _ in range(number_of_agents)]
+        )
+        self.order = [*range(self.number_of_agents)]
+        self.previous_order = [*range(self.number_of_agents)]
+        self.previous_agents = self.agents.copy()
+
+    def get_agent(self, agent_number: int) -> DQNAgent:
+        return self.agents[agent_number]
+    
+    def update_order(self, average_rewards: List[float]) -> None:
+        self.previous_order = self.order.copy()
+        order = np.argsort(average_rewards).tolist()
+        order.reverse()
+        self.order = order.copy()
+        
+    def save_agents(self) -> None:
+        self.previous_agents = self.agents.copy()
+    def refresh_agents(self) -> None:
+        # Load the weights of the best performing agents into the worst performing ones
+        worst_agent, second_worst_agent = self.order[-1], self.order[-2]
+        best_agent, second_best_agent = self.previous_order[0], self.previous_order[1]
+
+        self.agents[worst_agent].model.load_state_dict(self.previous_agents[best_agent].model.state_dict())
+        self.agents[second_worst_agent].model.load_state_dict(self.previous_agents[second_best_agent].model.state_dict())
