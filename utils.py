@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from constants import Constants as C
+import boto3
 
 def convert_to_binary_tensor(data: list[list[int]], pass_option: bool = False) -> torch.tensor:
     result = [[0] * 14 for _ in range(4)]
@@ -25,7 +26,15 @@ def print_rl_variables(reward: int, new_observation: np.array, finish: bool, eps
         print(f"The finish is: {finish}")
         print(f"The epsilon is: {epsilon}")
 
+def download_from_s3() -> None:
+    s3 = boto3.client('s3')
+    for i in range(C.NUMBER_OF_AGENTS):
+        s3.download_file("dqn-scum", f"models/agent_{i+1}.pt", f"models/checkpoints/agent_{i+1}.pt")
+
+def upload_to_s3() -> None:
+    s3 = boto3.client('s3')
+    for i in range(C.NUMBER_OF_AGENTS):
+        s3.upload_file(f"models/checkpoints/agent_{i+1}.pt", "dqn-scum", f"models/agent_{i+1}.pt")
+
 if __name__ == "__main__":
-    test = [[1,2,3,4,5,6,7,8,9, 9, 9,11,11], [9,11], [9], []]
-    binary_result = convert_to_binary(test)
-    print(binary_result)
+    upload_to_s3()
