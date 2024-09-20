@@ -1,3 +1,4 @@
+import argparse
 from dqn_agent import AgentPool
 from constants import Constants as C
 from env import ScumEnv
@@ -55,19 +56,19 @@ def log_stats(agent_pool: AgentPool, ep_rewards: list[list[int]], episode: int):
 def save_models(agent_pool: AgentPool, i: int) -> None:
     agent_pool.get_agent(i).save_model(path=f"models/checkpoints/agent_{i+1}.pt")
 
-def main(load_checkpoints: bool = False, number_of_agents: int = 5, lr: float = 1e-4) -> None:
-    env = ScumEnv(number_of_agents)
-    agent_pool = AgentPool(number_of_agents, load_checkpoints=load_checkpoints, learning_rate=lr)
-    ep_rewards = [[] for _ in range(number_of_agents)]
+def main(args):
+    env = ScumEnv(args.number_of_agents)
+    agent_pool = AgentPool(args.number_of_agents, load_checkpoints=args.load_checkpoints, learning_rate=args.learning_rate, epsilon=args.epsilon)
+    ep_rewards = [[] for _ in range(args.number_of_agents)]
     total_steps = 0
 
-    for episode in tqdm(range(1, C.EPISODES + 1), ascii=True, unit='episodes'):
+    for episode in tqdm(range(1, args.episodes + 1), ascii=True, unit='episodes'):
         episode_rewards, total_steps = run_episode(env, agent_pool, total_steps)
 
         for i, reward in enumerate(episode_rewards):
             ep_rewards[i].append(reward)
 
-        if episode % C.AGGREGATE_STATS_EVERY == 0:
+        if episode % args.aggregate_stats_every == 0:
             average_rewards = []
             for i, average_reward in log_stats(agent_pool, ep_rewards, episode):
                 average_rewards.append(average_reward)
@@ -77,9 +78,17 @@ def main(load_checkpoints: bool = False, number_of_agents: int = 5, lr: float = 
             agent_pool.refresh_agents()
             agent_pool.save_agents()
 
-
         for agent in range(agent_pool.number_of_agents):
             agent_pool.get_agent(agent).decay_epsilon()
 
 if __name__ == "__main__":
-    main(number_of_agents=C.NUMBER_OF_AGENTS, lr=1e-4)
+    parser = argparse.ArgumentParser(description="Run the Scum Environment simulation")
+    parser.add_argument("-n", "--number_of_agents", type=int, default=C.NUMBER_OF_AGENTS, help="Number of agents in the simulation")
+    parser.add_argument("-lr", "--learning_rate", type=float, default=1e-4, help="Learning rate for the agents")
+    parser.add_argument("-e", "--epsilon", type=float, default=0.1, help="Initial epsilon value for epsilon-greedy strategy")
+    parser.add_argument("-lc", "--load_checkpoints", action="store_true", help="Load checkpoints if available")
+    parser.add_argument("-ep", "--episodes", type=int, default=C.EPISODES, help="Number of episodes to run")
+    parser.add_argument("-as", "--aggregate_stats_every", type=int, default=C.AGGREGATE_STATS_EVERY, help="Aggregate stats every N episodes")
+
+    args = parser.parse_args()
+    main(args)
