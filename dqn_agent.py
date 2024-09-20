@@ -44,7 +44,7 @@ class DQNAgent:
             self.model.load_state_dict(checkpoint)
             self.target_model.load_state_dict(checkpoint)
 
-        self.buffer =  PrioritizedReplayBuffer(buffer_size=C.REPLAY_MEMORY_SIZE, state_size=C.NUMBER_OF_POSSIBLE_STATES, action_size=1, alpha=0.7, beta=0.4)## creamos una deque con maxima longitud C.REPLAY_MEMORY
+        self.buffer = PrioritizedReplayBuffer(buffer_size=C.REPLAY_MEMORY_SIZE, state_size=C.NUMBER_OF_POSSIBLE_STATES, action_size=1, alpha=0.7, beta=0.4)
         self.epsilon = epsilon
         self.epsilon_min = C.MIN_EPSILON
         self.epsilon_decay = C.EPSILON_DECAY
@@ -52,10 +52,12 @@ class DQNAgent:
         self.target_update_counter = 0
         
         self.scaler = amp.GradScaler()
-        # self.criterion = nn.HuberLoss()
         self.learning_rate = learning_rate
-        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.initial_learning_rate = learning_rate * C.INITIAL_LR_FACTOR
+        self.current_learning_rate = self.initial_learning_rate
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.initial_learning_rate)
         self.discount = C.DISCOUNT if discount is None else discount
+        self.warmup_steps = 0
 
     def create_model(self) -> ScumModel:
         model = ScumModel().to(C.DEVICE)
@@ -76,6 +78,7 @@ class DQNAgent:
     # Trains main network every step during episode
     def train(self, agent_number: int, step: int, terminal_state: bool) -> None:
         self.model.train()
+        self.warmup_learning_rate(step)
 
         # Start training only if certain number of samples is already saved
         if self.buffer.real_size < C.MIN_REPLAY_MEMORY_SIZE:
@@ -156,6 +159,16 @@ class DQNAgent:
     def load_model(self, path: str = "model.pt") -> nn.Module:
         model = torch.load(path)
         return model
+
+    def warmup_learning_rate(self, step):
+        if step < C.WARMUP_STEPS:
+            self.current_learning_rate = self.initial_learning_rate + (self.learning_rate - self.initial_learning_rate) * (step / C.WARMUP_STEPS)
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.current_learning_rate
+        elif step == C.WARMUP_STEPS:
+            self.current_learning_rate = self.learning_rate
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.current_learning_rate
 
 
 class AgentPool:
