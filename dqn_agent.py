@@ -4,6 +4,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from torch import optim
 import torch.cuda.amp as amp
+from torch.nn import functional as F
 
 import numpy as np
 from constants import Constants as C
@@ -11,7 +12,11 @@ import random
 from collections import deque
 
 from typing import Tuple
+from torch.utils.tensorboard import SummaryWriter
 
+from memory.buffer import PrioritizedReplayBuffer
+
+writer = SummaryWriter()
 class ScumModel(nn.Module):
     def __init__(self):
         ## Create a neural network with 2 layers of 512 neurons each 
@@ -35,15 +40,16 @@ class ScumModel(nn.Module):
 
 class DQNAgent:
     def __init__(self, epsilon: float = 1.0, learning_rate: float = 0.001, discount: float = None, path: str = None) -> None:
-        if path is not None:
-            self.model = self.load_model(path)       
-        else:
-            self.model = self.create_model()
-            
+        self.model = self.create_model()
         self.target_model = self.create_model()
         self.target_model.load_state_dict(self.model.state_dict())
-        
-        self.replay_memory = deque(maxlen=C.REPLAY_MEMORY_SIZE) ## creamos una deque con maxima longitud C.REPLAY_MEMORY
+
+        if path is not None:
+            checkpoint = torch.load(path)
+            self.model.load_state_dict(checkpoint)
+            self.target_model.load_state_dict(checkpoint)
+
+        self.buffer =  PrioritizedReplayBuffer(buffer_size=C.REPLAY_MEMORY_SIZE, state_size=C.NUMBER_OF_POSSIBLE_STATES, action_size=1, alpha=0.7, beta=0.4)## creamos una deque con maxima longitud C.REPLAY_MEMORY
         self.epsilon = epsilon
         self.epsilon_min = C.MIN_EPSILON
         self.epsilon_decay = C.EPSILON_DECAY
@@ -51,7 +57,7 @@ class DQNAgent:
         self.target_update_counter = 0
         
         self.scaler = amp.GradScaler()
-        self.criterion = nn.HuberLoss()
+        # self.criterion = nn.HuberLoss()
         self.learning_rate = learning_rate
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
         self.discount = C.DISCOUNT if discount is None else discount
@@ -61,7 +67,7 @@ class DQNAgent:
         return model
     
     def update_replay_memory(self, transition: Tuple[np.ndarray, int, float, np.ndarray, bool]) -> None:
-        self.replay_memory.append(transition)
+        self.buffer.add(transition)
     
     @torch.no_grad()
     def predict(self, state: np.ndarray, target: bool = False) -> np.ndarray:
@@ -73,83 +79,73 @@ class DQNAgent:
 
 
     # Trains main network every step during episode
-    def train(self, terminal_state):
+    def train(self, agent_number: int, step: int, terminal_state: bool) -> None:
         self.model.train()
 
         # Start training only if certain number of samples is already saved
-        if len(self.replay_memory) < C.MIN_REPLAY_MEMORY_SIZE:
-            return
+        if self.buffer.real_size < C.MIN_REPLAY_MEMORY_SIZE:
+            return None, None
             
         ## Sample a minibatch from the replay memory
-        minibatch = random.sample(self.replay_memory, C.BATCH_SIZE)
+        minibatch, weights, tree_idxs = self.buffer.sample(C.BATCH_SIZE)
+        current_states, actions, rewards, new_current_states, finishes = minibatch
 
-        ## Predict the Q's value for the current states
-        current_states = torch.stack([transition[0].to(C.DEVICE) for transition in minibatch]) 
         current_qs_list = self.predict(current_states, target=False)
+        future_qs_list = self.predict(new_current_states, target=True)
 
-        # ## delete impossible actions
-        tensor_w_possible_actions = current_states*current_qs_list
-        current_qs_list = torch.where(tensor_w_possible_actions == 0, torch.tensor(float('-inf'), device=C.DEVICE), tensor_w_possible_actions)
+        possible_actions = self._get_possible_actions(new_current_states, future_qs_list)
+        new_q = self._calculate_new_q_values(rewards, finishes, possible_actions)
 
+        current_qs = current_qs_list.clone()
+        actions = actions.long() - torch.tensor(1)
 
-        ## Predict the Q's value for the new current states with the target model, which is the one that is updated every C.UPDATE_TARGET_EVERY episodes
-        new_current_state = torch.stack([transition[3].to(C.DEVICE) for transition in minibatch])
-        future_qs_list = self.predict(new_current_state, target=True)
+        current_qs[torch.arange(C.BATCH_SIZE).long(), actions] = new_q.float()
 
-        # ## delete impossible actions
-        tensor_w_possible_actions = new_current_state*future_qs_list
-        future_qs_list = torch.where(tensor_w_possible_actions == 0, torch.tensor(float('-inf'), device=C.DEVICE), tensor_w_possible_actions)
+        td_errors, tree_idxs = self._optimize_model(current_states, current_qs, agent_number, step, weights, tree_idxs)
 
-
-        X = []
-        y = []
-
-        # Now we need to enumerate our batches
-        for index, (current_state, action, reward, _, finish) in enumerate(minibatch):
-
-            # If not a terminal state, get new q from future states, otherwise set it to 0
-            # almost like with Q Learning, but we use just part of equation here
-            if not finish:
-                # that .item() does is to get the value of the tensor as a python number    
-                max_future_q = torch.max(future_qs_list[index]).item() 
-                new_q = reward + self.discount * max_future_q
-            else:
-                new_q = reward
-
-            # Update Q value for given state
-            ## We clone the tensor to avoid in place operations
-            current_qs = current_qs_list[index].clone()
-            current_qs[action-1] = new_q
-
-            # And append to our training data
-            X.append(current_state.to(C.DEVICE))
-            y.append(current_qs.to(C.DEVICE))
-        
-        ## Convert the lists to tensors
-        batch_X = torch.stack(X)
-        batch_y = torch.stack(y)
-
-        with amp.autocast():
-            outputs = self.model(batch_X)
-            loss = self.criterion(outputs, batch_y)
-
-            # Backward pass and optimize
-            ## this is for the mixed precision training,
-            # it is used to scale the loss and the gradients 
-            # so that the training is more stable
-            self.scaler.scale(loss).backward() 
-            self.scaler.step(self.optimizer)
-            # Update the scale for next iteration
-            self.scaler.update()
-            
-        # Update target network counter every episode
         if terminal_state:
             self.target_update_counter += 1
 
-        # If counter reaches set value, update target network with weights of main network
         if self.target_update_counter > C.UPDATE_TARGET_EVERY:
             self.target_model.load_state_dict(self.model.state_dict())
             self.target_update_counter = 0
+        return td_errors, tree_idxs
+
+    def _extract_tensors_from_minibatch(self, minibatch):
+        current_states = torch.stack([transition[0].to(C.DEVICE) for transition in minibatch])
+        actions = torch.tensor([int(transition[1] - torch.tensor(1)) for transition in minibatch], device=C.DEVICE, dtype=torch.int64)
+        rewards = torch.tensor([transition[2] for transition in minibatch], device=C.DEVICE, dtype=torch.long)
+        new_current_states = torch.stack([transition[3].to(C.DEVICE) for transition in minibatch])
+        finishes = torch.tensor([int(transition[4]) for transition in minibatch], device=C.DEVICE, dtype=torch.float32)
+        return current_states, actions, rewards, new_current_states, finishes
+
+    def _get_possible_actions(self, new_current_states, future_qs_list):
+        tensor_w_possible_actions = new_current_states * future_qs_list
+        possible_actions = torch.where(tensor_w_possible_actions == 0, torch.tensor(float("-inf"), device=C.DEVICE), tensor_w_possible_actions)
+        
+        ## If no action is possible, set the possible action to the future qs value so no -inf is set
+        indices = (torch.sum(tensor_w_possible_actions, dim=1) == 0)
+        possible_actions[indices] = future_qs_list[indices].clone()
+        return possible_actions
+
+    def _calculate_new_q_values(self, rewards, finishes, possible_actions):
+        return rewards + self.discount * (1 - finishes) * torch.max(possible_actions, dim=1).values
+
+    def _optimize_model(self, batch_X, batch_y, agent_number, step, weights, tree_idxs):
+        with amp.autocast():
+            outputs = self.model(batch_X)
+            td_errors = torch.mean(torch.abs(batch_y - outputs), dim=1).detach()
+            loss = torch.mean((batch_y - outputs)**2 * weights)
+            loss = torch.clip(loss, -1, 1)
+
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+
+            writer.add_scalar(f"Loss/Agent {agent_number}", loss, global_step=step)
+            writer.flush()
+
+        return td_errors, tree_idxs
 
     def decay_epsilon(self):
         """
