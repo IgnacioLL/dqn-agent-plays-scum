@@ -89,11 +89,11 @@ class PrioritizedReplayBuffer:
         weights = weights / weights.max()
 
         batch = (
-            self.state[sample_idxs].to(C.DEVICE),
-            self.action[sample_idxs].to(C.DEVICE),
-            self.reward[sample_idxs].to(C.DEVICE),
-            self.next_state[sample_idxs].to(C.DEVICE),
-            self.done[sample_idxs].to(C.DEVICE)
+            self.state[sample_idxs].to(device()),
+            self.action[sample_idxs].to(device()),
+            self.reward[sample_idxs].to(device()),
+            self.next_state[sample_idxs].to(device()),
+            self.done[sample_idxs].to(device())
         )
         return batch, weights, tree_idxs
 
@@ -144,10 +144,10 @@ class ReplayBuffer:
         sample_idxs = np.random.choice(self.real_size, batch_size, replace=False)
 
         batch = (
-            self.state[sample_idxs].to(C.DEVICE),
-            self.action[sample_idxs].to(C.DEVICE),
-            self.reward[sample_idxs].to(C.DEVICE),
-            self.next_state[sample_idxs].to(C.DEVICE),
-            self.done[sample_idxs].to(C.DEVICE)
+            self.state[sample_idxs].to(device()),
+            self.action[sample_idxs].to(device()),
+            self.reward[sample_idxs].to(device()),
+            self.next_state[sample_idxs].to(device()),
+            self.done[sample_idxs].to(device())
         )
         return batch
