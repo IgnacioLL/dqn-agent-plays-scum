@@ -1,7 +1,7 @@
 #!/bin/bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install ubuntu-drivers-common -y
-sudo ubuntu-drivers autoinstall -y
+sudo ubuntu-drivers autoinstall
 
 # Download the latest Miniconda installer
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
