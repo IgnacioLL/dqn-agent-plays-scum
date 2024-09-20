@@ -44,3 +44,7 @@ class Constants:
     )
     
     AGGREGATE_STATS_EVERY = 100
+
+    WARMUP_STEPS = 25_000
+    INITIAL_LR_FACTOR = 0.01  # Start with 1% of the target learning rate
+
