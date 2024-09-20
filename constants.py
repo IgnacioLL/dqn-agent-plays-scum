@@ -42,5 +42,5 @@ class Constants:
         if torch.backends.mps.is_available()
         else "cpu"
     )
-
+    
     AGGREGATE_STATS_EVERY = 100

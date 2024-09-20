@@ -159,8 +159,6 @@ class ScumEnv:
         
         return action_state
 
-
-
     def decide_move(self, action_state: torch.tensor, epsilon: float=1, agent: torch.nn.Module=None) -> int:
         if action_state is None:
             action_state = torch.tensor([0 for _ in range((C.NUMBER_OF_CARDS_PER_SUIT+1)*C.NUMBER_OF_SUITS)] + [1], dtype=torch.float32).to(C.DEVICE)
