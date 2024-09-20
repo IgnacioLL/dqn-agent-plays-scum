@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 writer = SummaryWriter()
 
-def run_episode(env, agent_pool, ep_rewards, total_steps):
+def run_episode(env, agent_pool, total_steps) -> tuple[list[int], int]:
     finish_agents = [False] * 5
     episode_rewards = [0] * 5
     env.reset()
@@ -15,6 +15,7 @@ def run_episode(env, agent_pool, ep_rewards, total_steps):
     print("_" * 100)
 
     while np.array(finish_agents).sum() != agent_pool.number_of_agents:
+        print("_"*4)
         agent = agent_pool.get_agent(env.player_turn)
         action_state = env.get_cards_to_play()
         action = env.decide_move(action_state, epsilon=agent.epsilon, agent=agent)
@@ -36,10 +37,11 @@ def run_episode(env, agent_pool, ep_rewards, total_steps):
         if td_error is not None:
             agent.buffer.update_priorities(tree_idxs, td_error)  
         total_steps += 1
+        print("_"*4)
 
     return episode_rewards, total_steps
 
-def log_stats(agent_pool, ep_rewards, episode):
+def log_stats(agent_pool: AgentPool, ep_rewards: list[list[int]], episode: int):
         for i in range(agent_pool.number_of_agents):
             recent_rewards = ep_rewards[i][-C.AGGREGATE_STATS_EVERY:]
             average_reward = sum(recent_rewards) / len(recent_rewards)
@@ -50,22 +52,17 @@ def log_stats(agent_pool, ep_rewards, episode):
             writer.flush()
             yield i, average_reward
 
-def save_models(agent_pool, max_average_reward, i, average_reward, episode):
-    if average_reward > max_average_reward[i]:
-        max_average_reward[i] = average_reward
-        agent_pool.get_agent(i).save_model(path=f"models/best_models/agent_{i+1}_episode_{episode}_max_avg_{max_average_reward[i]:.2f}.pt")
-    else:
-        agent_pool.get_agent(i).save_model(path=f"models/checkpoints/agent_{i+1}.pt")
+def save_models(agent_pool: AgentPool, i: int) -> None:
+    agent_pool.get_agent(i).save_model(path=f"models/checkpoints/agent_{i+1}.pt")
 
-def main(load_checkpoints: bool = False, number_of_agents: int = 5):
+def main(load_checkpoints: bool = False, number_of_agents: int = 5, lr: float = 1e-4) -> None:
     env = ScumEnv(number_of_agents)
-    agent_pool = AgentPool(number_of_agents, load_checkpoints=load_checkpoints)
+    agent_pool = AgentPool(number_of_agents, load_checkpoints=load_checkpoints, learning_rate=lr)
     ep_rewards = [[] for _ in range(number_of_agents)]
-    max_average_reward = [-np.inf for _ in range(number_of_agents)]
     total_steps = 0
 
     for episode in tqdm(range(1, C.EPISODES + 1), ascii=True, unit='episodes'):
-        episode_rewards, total_steps = run_episode(env, agent_pool, ep_rewards, total_steps)
+        episode_rewards, total_steps = run_episode(env, agent_pool, total_steps)
 
         for i, reward in enumerate(episode_rewards):
             ep_rewards[i].append(reward)
@@ -74,7 +71,7 @@ def main(load_checkpoints: bool = False, number_of_agents: int = 5):
             average_rewards = []
             for i, average_reward in log_stats(agent_pool, ep_rewards, episode):
                 average_rewards.append(average_reward)
-            save_models(agent_pool, max_average_reward, i, average_reward, episode)
+                save_models(agent_pool, i)
     
             agent_pool.refresh_agents()
             agent_pool.update_order(average_rewards)
@@ -85,4 +82,4 @@ def main(load_checkpoints: bool = False, number_of_agents: int = 5):
             agent_pool.get_agent(agent).decay_epsilon()
 
 if __name__ == "__main__":
-    main(number_of_agents=C.NUMBER_OF_AGENTS)
+    main(number_of_agents=C.NUMBER_OF_AGENTS, lr=1e-4)
