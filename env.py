@@ -178,9 +178,6 @@ class ScumEnv:
             masked_predictions_npy  = masked_predictions.cpu().detach().numpy()
 
             masked_predictions_npy[masked_predictions_npy == 0] = float("-inf")
-
-            # if int(random.random()*1000) % 1000 == 0:
-            #     self._print_model_prediction(prediction, masked_predictions_npy)
             
             return np.argsort(masked_predictions_npy)[-1] + 1  ## esto devolvera un valor entre 1 y 57 que sera la eleccion del modelo
     

@@ -191,6 +191,8 @@ class AgentPool:
         worst_agent, second_worst_agent = self.order[-1], self.order[-2]
         best_agent, second_best_agent = self.previous_order[0], self.previous_order[1]
 
+        print(f"Refreshing agents {worst_agent} and {second_worst_agent} with {best_agent} and {second_best_agent}")
+
         self.agents[worst_agent].model.load_state_dict(self.previous_agents[best_agent].model.state_dict())
         self.agents[worst_agent].target_model.load_state_dict(self.previous_agents[best_agent].target_model.state_dict())
 
