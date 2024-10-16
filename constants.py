@@ -18,7 +18,7 @@ class Constants:
     DISCOUNT = .99
     UPDATE_TARGET_EVERY = 1_000
 
-    EPISODES = 10_000
+    EPISODES = 100_000
 
     REWARD_PASS = -0.1
     REWARD_CARD = 0.05
@@ -28,6 +28,7 @@ class Constants:
     REWARD_THIRD = 0
     REWARD_FOURTH = -0.5
     REWARD_LOSE = -1
+    REWARD_CHOOSE_IMPOSIBLE_ACTION = 0
 
     REWARD_EMPTY_HAND = 0.2
 
@@ -43,8 +44,10 @@ class Constants:
         else "cpu"
     )
     
-    AGGREGATE_STATS_EVERY = 100
+    AGGREGATE_STATS_EVERY = 1_000
 
     WARMUP_STEPS = 25_000
     INITIAL_LR_FACTOR = 0.01  # Start with 1% of the target learning rate
+
+    CHECKPOINTS_PATH = f"models/checkpoints/"
 
