@@ -22,7 +22,7 @@ def run_episode(env, agent_pool, total_steps) -> tuple[list[int], int]:
         action = env.decide_move(action_state, epsilon=agent.epsilon, agent=agent)
         env._print_move(action)
         
-        current_state, new_state, reward, finish, agent_number = env.make_move(action)
+        current_state, new_state, reward, finish, agent_number = env.step(action)
         finish_agents[agent_number] = finish
         episode_rewards[agent_number] += reward
 
