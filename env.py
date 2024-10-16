@@ -5,9 +5,10 @@ from typing import List, Tuple
 import torch
 import torch.nn.functional as F
 import numpy as np
+from math import ceil
 
 from constants import Constants as C
-from utils import convert_to_binary_tensor
+from utils import convert_to_binary_tensor, move_to_last_position
 
 class ScumEnv:
     def __init__(self, number_players: int):
@@ -22,11 +23,21 @@ class ScumEnv:
         self.player_position_ending = 0
         self.player_order = [-1] * self.number_players
         self.previous_state = [
-            torch.zeros(((C.NUMBER_OF_CARDS_PER_SUIT+1)*C.NUMBER_OF_SUITS)+1, dtype=torch.float32) 
+            torch.zeros(C.NUMBER_OF_POSSIBLE_STATES + self.number_players + C.NUMBER_OF_CARDS_PER_SUIT+1, dtype=torch.float32) 
             for _ in range(self.number_players)
             ]
         self.previous_reward = [0] * self.number_players
         self.previous_finish = [False] * self.number_players
+
+        self.cards_thrown = [0] * (C.NUMBER_OF_CARDS_PER_SUIT + 1)
+
+    def _compute_cards_x_player(self, cards: List[int]) -> int:
+        number_of_cards = len(cards)
+        number_of_cards_x_person = ceil((C.NUMBER_OF_SUITS*C.NUMBER_OF_CARDS_PER_SUIT)/self.number_players)
+        return number_of_cards/number_of_cards_x_person
+    
+    def get_number_cards_x_person(self) -> List[int]:
+        return [self._compute_cards_x_player(cards_player[0]) for cards_player in self.cards]
 
     def _get_deck(self) -> List[int]:
         deck = [rank for _ in range(C.NUMBER_OF_SUITS) for rank in range(1, C.NUMBER_OF_CARDS_PER_SUIT + 1)]
@@ -86,6 +97,7 @@ class ScumEnv:
             for _ in range(n_cards + 1):
                 self.cards[self.player_turn][0].remove(card_number)
         self.cards[self.player_turn] = self._get_combinations(self.cards[self.player_turn][0])
+        self.cards_thrown[card_number - 1] = (n_cards + 1) * (1/C.NUMBER_OF_SUITS)
 
     def _reinitialize_round(self) -> None:
         self.last_player = -1
@@ -146,6 +158,9 @@ class ScumEnv:
             cards = [cards for cards in possibilities if cards >= self.last_move[0]] + two_of_hearts
         cards = [cards if index == n_cards else [] for index in range(4)]
         return convert_to_binary_tensor(cards, pass_option=True) ## add the pass action
+    
+    def get_cards_thrown(self):
+        return self.cards_thrown
         
     def get_cards_to_play(self) -> torch.tensor:
         if sum(self.players_in_game) == 0:
@@ -155,24 +170,31 @@ class ScumEnv:
             self._reinitialize_round()
             return self.get_cards_to_play()
 
-        action_state: torch.tensor = self._get_cards_to_play()
-        
-        return action_state
+        action_space: torch.tensor = self._get_cards_to_play()
 
-    def decide_move(self, action_state: torch.tensor, epsilon: float=1, agent: torch.nn.Module=None) -> int:
-        if action_state is None:
-            action_state = torch.tensor([0 for _ in range((C.NUMBER_OF_CARDS_PER_SUIT+1)*C.NUMBER_OF_SUITS)] + [1], dtype=torch.float32).to(C.DEVICE)
+        players_info = self.get_number_cards_x_person()
+        players_info = move_to_last_position(players_info, self.player_turn)
+        cards_thrown = self.get_cards_thrown()
+
+        state = torch.cat([action_space, torch.tensor(players_info), torch.tensor(cards_thrown)])
+        
+        return state
+
+    def decide_move(self, state: torch.tensor, epsilon: float=1, agent: torch.nn.Module=None) -> int:
+        action_space = state[:C.NUMBER_OF_POSSIBLE_STATES]
+        if state is None:
+            state = torch.tensor([0 for _ in range((C.NUMBER_OF_POSSIBLE_STATES - 1) + self.number_players + C.NUMBER_OF_CARDS_PER_SUIT+1)] + [1], dtype=torch.float32).to(C.DEVICE)
         if random.random() < epsilon:
-            action_state_list = action_state.cpu().detach().numpy()
-            indices = [i for i, x in enumerate(action_state_list) if x == 1]
+            action_space_list = action_space.cpu().detach().numpy()
+            indices = [i for i, x in enumerate(action_space_list) if x == 1]
             return random.choice(indices) + 1
         else:
-            prediction = agent.predict(action_state, target=True)
+            prediction = agent.predict(state, target=True)
             print("Using model to decide move")
             print("Prediction made by the model is: ", prediction[0].cpu().detach().numpy().round(2))
             
             # We set a large negative value to the masked predictions that are not possible
-            masked_predictions = prediction[0] * action_state
+            masked_predictions = prediction[0] * action_space
             masked_predictions_npy  = masked_predictions.cpu().detach().numpy()
 
             masked_predictions_npy[masked_predictions_npy == 0] = float("-inf")
@@ -185,14 +207,14 @@ class ScumEnv:
         self._update_player_turn()
         self._check_players_playing()
 
-    def make_move(self, action: int) -> Tuple[torch.tensor, int, bool, int]:
+    def step(self, action: int, current_state: torch.tensor) -> Tuple[torch.tensor, int, bool, int]:
         ## This will be the variables returned to compute the reward.
         ## We will use the past events to be able to compute the new states.
         agent_number = self.player_turn
 
         previous_state = self.previous_state[agent_number]
         previous_reward = self.previous_reward[agent_number]
-        new_state = self.convert_to_binary_player_turn_cards() ## this is the new state
+        new_state = current_state ## this is the new state
 
         # Update previous state to the new state
         self.previous_state[agent_number] = new_state
@@ -222,7 +244,7 @@ class ScumEnv:
     
     def get_stats_after_finish(self, agent_number: int) -> Tuple[int, int, int]:
         current_state = self.previous_state[agent_number]
-        new_state = torch.zeros((C.NUMBER_OF_CARDS_PER_SUIT+1)*C.NUMBER_OF_SUITS+1)
+        new_state = torch.zeros((C.NUMBER_OF_POSSIBLE_STATES) + self.number_players + C.NUMBER_OF_CARDS_PER_SUIT+1)
         reward = self.previous_reward[agent_number]
         return current_state, new_state, reward
 
