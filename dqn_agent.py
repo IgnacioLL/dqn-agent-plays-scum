@@ -60,8 +60,7 @@ class DQNAgent:
         self.warmup_steps = 0
 
     def create_model(self) -> ScumModel:
-        model = ScumModel().to(C.DEVICE)
-        return model
+        return ScumModel().to(C.DEVICE)
     
     def update_replay_memory(self, transition: Tuple[np.ndarray, int, float, np.ndarray, bool]) -> None:
         self.buffer.add(transition)
